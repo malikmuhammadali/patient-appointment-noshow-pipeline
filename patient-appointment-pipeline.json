@@ -1,0 +1,5049 @@
+{
+  "name": "Patient Appointment & No-Show Reduction Pipeline (Demo)",
+  "nodes": [
+    {
+      "id": "a6bdee75-4128-4d11-8fd3-fe86825fc2ba",
+      "name": "SN Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -320,
+        -80
+      ],
+      "parameters": {
+        "content": "PATIENT APPOINTMENT & NO-SHOW REDUCTION PIPELINE\n\nPortfolio/demo build. ALL patient data anywhere in this workflow (names, phones, emails) is SYNTHETIC TEST DATA — never connect this to a real EHR or real individuals.\n\nScheduling & logistics ONLY. Any clinical-sounding content is detected and routed to staff — this workflow never gives medical advice.\n\nSingle-canvas design: reusable logic (classification, calendar verification, outbound messaging, escalation, error handling) is implemented as SHARED node groups that multiple upstream branches feed into (fan-in), with a carried 'envelope' object + Switch nodes routing results back out — see sticky notes at each shared block.",
+        "height": 420,
+        "width": 560,
+        "color": 7
+      }
+    },
+    {
+      "id": "d879a2b9-039a-4ca7-812b-c3b2f0c416cd",
+      "name": "Web Booking Form Intake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "booking/web",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      }
+    },
+    {
+      "id": "2e56f52c-a372-4f7e-a1ea-6a42f438f178",
+      "name": "WhatsApp Intake (Simulated Stand-In)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        220
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "booking/whatsapp",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      }
+    },
+    {
+      "id": "402d7fe7-062b-4f36-b02e-4d05e8afb434",
+      "name": "Phone Transcript Intake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        440
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "booking/phone",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      }
+    },
+    {
+      "id": "abdb9eda-a5e4-4b96-acca-8ba1e2e41a09",
+      "name": "SN Intake",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -360
+      ],
+      "parameters": {
+        "content": "STAGE 1 — MULTI-CHANNEL INTAKE\n\nEach channel has its own webhook + normalization branch. All three map into ONE common internal 'booking envelope' so every stage downstream is channel-agnostic.\n\nWhatsApp is a SIMULATED stand-in: the webhook body is shaped like a real WhatsApp Business Cloud payload for demo realism, but there is no live Meta integration. Phone Transcript Intake assumes an existing call-transcription service posts the transcript text here — no telephony infrastructure is built.",
+        "height": 260,
+        "width": 680,
+        "color": 4
+      }
+    },
+    {
+      "id": "faca2428-2cc3-4420-88dc-9dc5994e877f",
+      "name": "Normalize: Web -> Envelope",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        280,
+        0
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2ac3ab9a-c07a-4360-a5f1-e85b2d8a6d65",
+              "name": "request_id",
+              "value": "={{ $json.body?.request_id || $workflow.id + '-' + $now.toMillis() }}",
+              "type": "string"
+            },
+            {
+              "id": "55429ba4-c6d3-4da9-a52e-77412a64ecbd",
+              "name": "channel",
+              "value": "web",
+              "type": "string"
+            },
+            {
+              "id": "29d33a6c-9c4d-4e6b-bb81-ad12e6a901f4",
+              "name": "contact.name",
+              "value": "={{ $json.body.name }}",
+              "type": "string"
+            },
+            {
+              "id": "a1fee0e6-8b0f-43f8-93f1-b1bdf6d05970",
+              "name": "contact.phone",
+              "value": "={{ $json.body.phone }}",
+              "type": "string"
+            },
+            {
+              "id": "6bfc13ca-1991-4092-b996-a07a472e5ddb",
+              "name": "contact.email",
+              "value": "={{ $json.body.email }}",
+              "type": "string"
+            },
+            {
+              "id": "5fa9bbec-9070-4298-a549-a20c09702ae4",
+              "name": "service_type_hint",
+              "value": "={{ $json.body.service_type }}",
+              "type": "string"
+            },
+            {
+              "id": "14cc7782-6511-4843-aead-ccce62f40018",
+              "name": "requested_window_hint",
+              "value": "={{ $json.body.preferred_date + ' ' + ($json.body.preferred_time_window || '') }}",
+              "type": "string"
+            },
+            {
+              "id": "c61b1612-3ac1-4b61-a94c-1020dfe6e884",
+              "name": "raw_text",
+              "value": "={{ $json.body.message || '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c0518374-03b8-4b1f-94c6-def736e9b00d",
+      "name": "Normalize: WhatsApp -> Envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        220
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Simulated WhatsApp Business Cloud webhook shape.\nconst body = $input.first().json.body;\nconst msg = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0] || {};\nconst contact = body?.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile || {};\n\nreturn [{\n  json: {\n    request_id: `wa-${msg.timestamp || Date.now()}`,\n    channel: 'whatsapp',\n    'contact.name': contact.name || '',\n    'contact.phone': msg.from || '',\n    'contact.email': '',\n    service_type_hint: '',\n    requested_window_hint: '',\n    raw_text: msg.text?.body || '',\n  },\n}];"
+      }
+    },
+    {
+      "id": "fd9ef5f0-225c-4b18-a367-a1fa83537900",
+      "name": "Normalize: Phone Transcript -> Envelope",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        280,
+        440
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "270c8937-5885-4d88-9d9b-737886b72691",
+              "name": "request_id",
+              "value": "={{ 'call-' + $json.body.call_id }}",
+              "type": "string"
+            },
+            {
+              "id": "c93e7c40-76b0-4117-be5f-8a721bfb134b",
+              "name": "channel",
+              "value": "phone",
+              "type": "string"
+            },
+            {
+              "id": "4115e7d2-5cb8-46d0-94b5-b6c4bcc92762",
+              "name": "contact.name",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "42980e30-cc41-4428-8fea-e0f0b7f33c81",
+              "name": "contact.phone",
+              "value": "={{ $json.body.caller_phone }}",
+              "type": "string"
+            },
+            {
+              "id": "2314d45c-4314-4de3-994f-fcf6be77352c",
+              "name": "contact.email",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "d16d3073-244c-4a6d-81d2-04426aa7ffee",
+              "name": "service_type_hint",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "745df525-18fa-4940-bf28-3cc55dd95193",
+              "name": "requested_window_hint",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "1812bbd2-e8d9-48e2-8d50-fdaa4d4223ec",
+              "name": "raw_text",
+              "value": "={{ $json.body.transcript_text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e08061e7-1b66-4527-a248-5ee2c114daf5",
+      "name": "Sheets: Find Patient By Phone",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        560,
+        220
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Patients",
+          "mode": "name"
+        },
+        "options": {},
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "phone",
+              "lookupValue": "={{ $json['contact.phone'] }}"
+            }
+          ],
+          "combineFilters": "AND"
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "7828c101-b0ee-4437-8856-b61fbb59774b",
+      "name": "IF: Patient Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        840,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.patient_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "93fc601e-6678-432c-b2e7-dc5f3e8286a2",
+      "name": "Prepare New Patient Record",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1120,
+        340
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ca12b6ed-ee67-429e-9163-1facdc51d15e",
+              "name": "patient_id",
+              "value": "={{ 'PT-' + Math.floor(Math.random()*900000+100000) }}",
+              "type": "string"
+            },
+            {
+              "id": "f980ddd0-a08d-409e-b240-c01c5e1d4a4c",
+              "name": "name",
+              "value": "={{ $json['contact.name'] || 'Unknown Caller' }}",
+              "type": "string"
+            },
+            {
+              "id": "4839bbdc-10cc-4e6a-9706-34457fc1a36f",
+              "name": "phone",
+              "value": "={{ $json['contact.phone'] }}",
+              "type": "string"
+            },
+            {
+              "id": "00576546-8f20-47d1-b47f-e1aea8349453",
+              "name": "email",
+              "value": "={{ $json['contact.email'] || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "1f97e5f6-dd2b-4961-8160-f7949a3fee0a",
+              "name": "preferred_channel",
+              "value": "={{ $json.channel }}",
+              "type": "string"
+            },
+            {
+              "id": "f53f2402-6f82-443c-9cf5-7ba851b7b17f",
+              "name": "created_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "68827ebc-c68e-4ad3-845e-5c3fb208738f",
+      "name": "Sheets: Create New Patient Record",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1400,
+        340
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Patients",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "e3dd1a84-af06-43d5-95c6-71dd46ccc347",
+      "name": "SN Patient Lookup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        560,
+        520
+      ],
+      "parameters": {
+        "content": "SHARED BLOCK — Patient Lookup/Create\n\nFed by all three intake channels (fan-in). Looks the contact phone number up in the Patients sheet; creates a new synthetic patient record if none exists. Both outcomes converge on the same next step (Request Understanding) without needing a Merge node, since exactly one IF branch fires per execution.",
+        "height": 220,
+        "width": 620,
+        "color": 4
+      }
+    },
+    {
+      "id": "d8633b04-9707-4a1b-85bf-853ed94a3c83",
+      "name": "Prep: Classification Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1680,
+        220
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cdf3cfc0-a739-4b84-a379-01e14ab476ee",
+              "name": "raw_text",
+              "value": "={{ $json.raw_text }}",
+              "type": "string"
+            },
+            {
+              "id": "196ad693-2fa0-45d8-a42f-7568f3b707de",
+              "name": "channel",
+              "value": "={{ $json.channel }}",
+              "type": "string"
+            },
+            {
+              "id": "9bbd41af-90f7-43d4-885a-c85c90cf1cdf",
+              "name": "patient_id",
+              "value": "={{ $json.patient_id }}",
+              "type": "string"
+            },
+            {
+              "id": "2779d27f-55c0-4086-af9a-ebffb7f5d888",
+              "name": "contact.name",
+              "value": "={{ $json['contact.name'] }}",
+              "type": "string"
+            },
+            {
+              "id": "ebdfab19-c25a-476f-8d60-462729b52cb2",
+              "name": "contact.phone",
+              "value": "={{ $json['contact.phone'] }}",
+              "type": "string"
+            },
+            {
+              "id": "4841a306-6357-432b-bcde-2a6f19b1ffbe",
+              "name": "contact.email",
+              "value": "={{ $json['contact.email'] }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "444806d3-6f45-4d36-aa49-a31d9e43a14d",
+      "name": "Anthropic Chat Model: Claude",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.5,
+      "position": [
+        1960,
+        340
+      ],
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-6",
+          "cachedResultName": "Claude Sonnet 4.6"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "anthropicApi": {
+          "id": "gJXpraBF1c3fBu3I",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "id": "fedb8849-7a21-47e0-877d-e1d0f2361273",
+      "name": "Structured Output Parser: Classification Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1960,
+        500
+      ],
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"intent\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"new_booking\",\n        \"reschedule\",\n        \"cancellation\",\n        \"staff_question\"\n      ]\n    },\n    \"service_type\": {\n      \"type\": \"string\"\n    },\n    \"requested_window_start\": {\n      \"type\": \"string\"\n    },\n    \"requested_window_end\": {\n      \"type\": \"string\"\n    },\n    \"urgency\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"routine\",\n        \"urgent\"\n      ]\n    },\n    \"contains_clinical_content\": {\n      \"type\": \"boolean\"\n    },\n    \"explicit_human_request\": {\n      \"type\": \"boolean\"\n    },\n    \"needs_staff\": {\n      \"type\": \"boolean\"\n    },\n    \"reasoning\": {\n      \"type\": \"string\"\n    }\n  },\n  \"required\": [\n    \"intent\",\n    \"urgency\",\n    \"contains_clinical_content\",\n    \"explicit_human_request\",\n    \"needs_staff\"\n  ]\n}",
+        "autoFix": false
+      }
+    },
+    {
+      "id": "22061930-42c0-4074-bbb2-94da9aaad4ed",
+      "name": "Classify & Extract Request (Claude)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1960,
+        220
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=You classify inbound patient scheduling messages for a clinic's automated\nbooking system. You handle SCHEDULING AND LOGISTICS ONLY.\n\nYou must NEVER generate, suggest, or imply any clinical/medical judgment,\ndiagnosis, symptom interpretation, or treatment advice. If the message\ncontains anything even slightly clinical (symptoms, medication questions,\n\"is this normal\", requests for medical advice), set contains_clinical_content\nto true and needs_staff to true — regardless of anything else in the message.\n\nAlso set needs_staff to true if: the message is ambiguous and you cannot\nconfidently classify it; the patient explicitly asks for a human/staff\nmember; or urgency looks like an emergency (set urgency=\"urgent\" too in\nthat case).\n\nExtract only scheduling fields: intent (new_booking, reschedule,\ncancellation, or staff_question if none clearly apply), service_type (best\nguess from the message, empty string if unclear), requested_window_start /\nrequested_window_end (ISO 8601 if a specific date/time or range is stated,\notherwise empty strings), urgency (routine or urgent), and a short\nreasoning string. Return ONLY the structured fields — no clinical content,\never.\n\n---\nChannel: {{ $json.channel }}\nMessage to classify:\n{{ $json.raw_text }}",
+        "hasOutputParser": true
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "2c6cc7d0-0b69-40e5-b2be-195f61fcae56",
+      "name": "Attach Envelope Fields To Classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        60
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const classified = $input.first().json;\nconst envelope = $('Prep: Classification Input').first().json;\nreturn [{ json: { ...classified, ...envelope } }];"
+      }
+    },
+    {
+      "id": "192c5869-cde8-49a0-8033-eea68f27297b",
+      "name": "IF: Needs Staff / Clinical / Urgent?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2520,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.needs_staff || $json.contains_clinical_content || $json.explicit_human_request || $json.urgency === 'urgent' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "0efb9035-18b9-4e61-b8be-c02f7efaff4f",
+      "name": "Switch: Route By Intent",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        2520,
+        340
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "new_booking",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "reschedule",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "cancellation",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "staff_escalation"
+        }
+      }
+    },
+    {
+      "id": "dbcb6c4a-7f6e-409b-83e3-a59df4fc99d5",
+      "name": "Sheets: Find Patient's Upcoming Appointment",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2800,
+        500
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Appointments",
+          "mode": "name"
+        },
+        "options": {},
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "patient_id",
+              "lookupValue": "={{ $json.patient_id }}"
+            }
+          ],
+          "combineFilters": "AND"
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "06108dc5-19dc-4a2f-b61a-05f22f299a88",
+      "name": "IF: Upcoming Appointment Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3080,
+        500
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.appointment_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "9f42f5be-eb29-4253-b52a-fa2004b35007",
+      "name": "SN Understanding",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        -260
+      ],
+      "parameters": {
+        "content": "SHARED BLOCK — Request Understanding\n\nFed by all three intake channels via the Patient Lookup block (fan-in). Claude classifies intent + extracts scheduling fields AND flags clinical content / urgency / explicit human requests in one structured-output call. ANY of those flags routes straight to Staff Escalation — the system never guesses on clinical or ambiguous input. Everything else routes by intent via the Switch.",
+        "height": 220,
+        "width": 680,
+        "color": 5
+      }
+    },
+    {
+      "id": "82922e53-a525-4636-95ff-eb7a3210a6f2",
+      "name": "Prep Slot Search: New Booking",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        0,
+        900
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8349af21-71a0-41a6-9032-addf4ed2f75f",
+              "name": "origin_stage",
+              "value": "new_booking",
+              "type": "string"
+            },
+            {
+              "id": "5945cedb-bff0-41bd-b51d-f88247a062e4",
+              "name": "appointment_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "4713fe8e-1011-4a1a-b10c-52f9a45be6de",
+              "name": "patient_id",
+              "value": "={{ $json.patient_id }}",
+              "type": "string"
+            },
+            {
+              "id": "e707ffa2-9bf6-4adc-b61f-a039eba60970",
+              "name": "channel",
+              "value": "={{ $json.channel }}",
+              "type": "string"
+            },
+            {
+              "id": "e4b584fc-84e3-47ce-9ce2-97d16dfccb6a",
+              "name": "contact.name",
+              "value": "={{ $json['contact.name'] }}",
+              "type": "string"
+            },
+            {
+              "id": "288e518a-34b1-4f75-b805-c5abe5eb3b98",
+              "name": "contact.phone",
+              "value": "={{ $json['contact.phone'] }}",
+              "type": "string"
+            },
+            {
+              "id": "19f308e1-fc72-482d-bc3e-97d5708aa8ca",
+              "name": "contact.email",
+              "value": "={{ $json['contact.email'] }}",
+              "type": "string"
+            },
+            {
+              "id": "891de114-4d2a-47ad-8e5a-dd8adf88eca1",
+              "name": "service_type",
+              "value": "={{ $json.service_type }}",
+              "type": "string"
+            },
+            {
+              "id": "7fd611e4-c8ba-4456-badc-d6f6c49bb0ca",
+              "name": "window_start",
+              "value": "={{ $json.requested_window_start }}",
+              "type": "string"
+            },
+            {
+              "id": "d94cb754-1316-4138-bb5f-464754b4c470",
+              "name": "window_end",
+              "value": "={{ $json.requested_window_end }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "3f5d90af-ac5b-4e30-aba5-be9de4740229",
+      "name": "Prep Slot Search: Reschedule (Free-Text)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1120
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const appt = $input.first().json;\nconst cls = $('Attach Envelope Fields To Classification').item.json;\nreturn [{\n  json: {\n    origin_stage: 'reschedule',\n    appointment_id: appt.appointment_id,\n    calendar_event_id: appt.calendar_event_id,\n    patient_id: cls.patient_id,\n    channel: cls.channel,\n    'contact.name': cls['contact.name'],\n    'contact.phone': cls['contact.phone'],\n    'contact.email': cls['contact.email'],\n    service_type: appt.service_type,\n    window_start: cls.requested_window_start,\n    window_end: cls.requested_window_end,\n  },\n}];"
+      }
+    },
+    {
+      "id": "5bfd09aa-a776-4fab-9dbc-673729a88ad8",
+      "name": "SN Reschedule NoAppt",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        280,
+        1400
+      ],
+      "parameters": {
+        "content": "No upcoming appointment on file for a free-text reschedule request\n-> straight to Staff Escalation (see Stage 10) rather than guessing\nwhich appointment the patient means.",
+        "height": 160,
+        "width": 360,
+        "color": 3
+      }
+    },
+    {
+      "id": "c27b654e-a293-474a-9d90-290a04e0d355",
+      "name": "Get Service Duration",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        900
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const CONFIG = {\n  serviceDurationsMin: {\"New Patient Consultation\": 45, \"Follow-Up Visit\": 20, \"Routine Checkup\": 30, \"Lab Review / Results Discussion\": 15, \"Vaccination / Injection\": 10},\n  businessHours: {\"start\": \"09:00\", \"end\": \"17:00\", \"days\": [1, 2, 3, 4, 5]},\n  slotGranularityMin: 15,\n  noShowGraceMin: 15,\n  waitlistOfferWindowMin: 30,\n  timezone: \"America/New_York\",\n};\n\nconst item = $input.first().json;\nconst duration = CONFIG.serviceDurationsMin[item.service_type] || 30; // sane default if unrecognized\nreturn [{ json: { ...item, duration_min: duration } }];\n"
+      }
+    },
+    {
+      "id": "23473693-c8cb-425d-a65b-721362612a2e",
+      "name": "Google Calendar: List Events In Window",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        560,
+        900
+      ],
+      "parameters": {
+        "resource": "event",
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list"
+        },
+        "timeMin": "={{ $json.window_start || $now.toISO() }}",
+        "timeMax": "={{ $json.window_end || $now.plus({ days: 7 }).toISO() }}",
+        "returnAll": true
+      },
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "GOOGLE_CALENDAR_CRED_ID",
+          "name": "Google Calendar account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "4d59b366-4da2-478d-9805-2d8e7a338eed",
+      "name": "Code: Compute Free Slots vs Business Hours",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        900
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const CONFIG = {\n  serviceDurationsMin: {\"New Patient Consultation\": 45, \"Follow-Up Visit\": 20, \"Routine Checkup\": 30, \"Lab Review / Results Discussion\": 15, \"Vaccination / Injection\": 10},\n  businessHours: {\"start\": \"09:00\", \"end\": \"17:00\", \"days\": [1, 2, 3, 4, 5]},\n  slotGranularityMin: 15,\n  noShowGraceMin: 15,\n  waitlistOfferWindowMin: 30,\n  timezone: \"America/New_York\",\n};\n\n// Uses cross-node reference since Calendar node output only carries event\n// data — the original search request lives on \"Get Service Duration\".\nconst req = $('Get Service Duration').first().json;\nconst events = $input.all().map(i => i.json);\nconst durationMs = req.duration_min * 60 * 1000;\n\nfunction isBusinessDay(d) { return CONFIG.businessHours.days.includes(d.getUTCDay() === 0 ? 7 : d.getUTCDay()); }\n\nfunction* candidateStarts(from, to) {\n  let cursor = new Date(from);\n  const [bh, bm] = CONFIG.businessHours.start.split(':').map(Number);\n  const [eh, em] = CONFIG.businessHours.end.split(':').map(Number);\n  while (cursor < to) {\n    const dayStart = new Date(cursor); dayStart.setUTCHours(bh, bm, 0, 0);\n    const dayEnd = new Date(cursor); dayEnd.setUTCHours(eh, em, 0, 0);\n    if (isBusinessDay(cursor)) {\n      let slot = cursor < dayStart ? dayStart : cursor;\n      while (slot.getTime() + durationMs <= dayEnd.getTime()) {\n        yield new Date(slot);\n        slot = new Date(slot.getTime() + CONFIG.slotGranularityMin * 60 * 1000);\n      }\n    }\n    cursor = new Date(cursor); cursor.setUTCDate(cursor.getUTCDate() + 1); cursor.setUTCHours(0, 0, 0, 0);\n  }\n}\n\nfunction overlaps(startA, endA, startB, endB) { return startA < endB && startB < endA; }\n\nconst from = req.window_start ? new Date(req.window_start) : new Date();\nconst to = req.window_end ? new Date(req.window_end) : new Date(from.getTime() + 7 * 24 * 60 * 60 * 1000);\n\nconst free = [];\nfor (const start of candidateStarts(from, to)) {\n  const end = new Date(start.getTime() + durationMs);\n  const conflict = events.some(e => e.start?.dateTime && overlaps(start, end, new Date(e.start.dateTime), new Date(e.end.dateTime)));\n  if (!conflict) free.push({ start: start.toISOString(), end: end.toISOString() });\n  if (free.length >= 4) break; // exact (first) + up to 3 alternatives\n}\n\nconst result = { ...req };\nif (free.length === 0) {\n  result.result_type = 'none';\n} else if (req.window_start && req.window_end) {\n  result.result_type = 'exact';\n  result.slot_start = free[0].start;\n  result.slot_end = free[0].end;\n  result.alternative_slots = free.slice(1);\n} else {\n  // no specific window was requested — first free slot found IS the offer\n  result.result_type = 'exact';\n  result.slot_start = free[0].start;\n  result.slot_end = free[0].end;\n  result.alternative_slots = free.slice(1);\n}\nreturn [{ json: result }];\n"
+      }
+    },
+    {
+      "id": "55cb4001-9e17-4262-b220-86a3cd736a08",
+      "name": "Switch: Slot Result",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1120,
+        900
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.result_type }}",
+                    "rightValue": "exact",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.result_type }}",
+                    "rightValue": "alternatives",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "none"
+        }
+      }
+    },
+    {
+      "id": "dc3c3566-dab8-4df6-9d0c-d01164177872",
+      "name": "SN CalendarVerify",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        640
+      ],
+      "parameters": {
+        "content": "SHARED BLOCK — Find Available Slot In Window\n\nFed by New Booking and Reschedule flows (fan-in). Independently re-checks Google Calendar (the live calendar of record) before ever telling a patient a time is available — this is a dedicated step, separate from composing the reply. If the exact requested window is free, that slot is used; otherwise up to 3 genuinely free alternatives are computed and offered; if nothing is free in the search horizon, it escalates to staff rather than leaving the patient with no path forward.",
+        "height": 220,
+        "width": 760,
+        "color": 5
+      }
+    },
+    {
+      "id": "8414847c-c9a1-4c1d-b123-7bb1aa637ba0",
+      "name": "Code: Build Slot Recheck Window",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        1600
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const item = $input.first().json;\nreturn [{ json: { ...item, recheck_time_min: item.slot_start, recheck_time_max: item.slot_end } }];"
+      }
+    },
+    {
+      "id": "ea6e9ab1-67b4-4a22-9d7d-e4a3f743ec33",
+      "name": "Google Calendar: Re-Check Freed Slot",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1960,
+        1600
+      ],
+      "parameters": {
+        "resource": "event",
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list"
+        },
+        "timeMin": "={{ $json.recheck_time_min }}",
+        "timeMax": "={{ $json.recheck_time_max }}",
+        "returnAll": true
+      },
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "GOOGLE_CALENDAR_CRED_ID",
+          "name": "Google Calendar account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "9b1086d7-437e-4c8e-a824-2188495fb0e1",
+      "name": "Code: Determine If Still Open",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        1600
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const req = $('Code: Build Slot Recheck Window').first().json;\nconst events = $input.all().map(i => i.json);\nconst stillOpen = events.length === 0;\nreturn [{ json: { ...req, slot_still_open: stillOpen } }];"
+      }
+    },
+    {
+      "id": "f1970e5f-dd5c-4b5b-b61f-2bf68dd3064d",
+      "name": "IF: Slot Still Open?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2520,
+        1600
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.slot_still_open }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "125d00df-dd4e-47b6-8dd2-74511bafd501",
+      "name": "SN VerifySpecificSlot",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        1340
+      ],
+      "parameters": {
+        "content": "SHARED BLOCK — Verify Specific Slot Still Open\n\nUsed only by Waitlist Fill (Stage 7) immediately before offering a freshly-cancelled slot to the next waitlisted patient. Re-reads the calendar for that exact window to close the race-condition gap between 'slot freed' and 'offer sent'. If it's already gone, control returns to 'select next candidate' instead of offering a slot that no longer exists.",
+        "height": 220,
+        "width": 760,
+        "color": 5
+      }
+    },
+    {
+      "id": "dcc1e40f-0d0b-4793-b37f-99fef63a7435",
+      "name": "Respond to Webhook: Patient Reply",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2800,
+        2900
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'ok', message: $json.reply_text } }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "3d474db0-b250-4d6b-ae31-8be6baec5c81",
+      "name": "SN RespondWebhook",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2800,
+        2680
+      ],
+      "parameters": {
+        "content": "SHARED — Respond to Webhook\n\nUsed ONLY for a direct, synchronous reply to whoever is *currently* hitting a webhook in this execution (the booking/reschedule/cancellation caller, or someone responding to a reminder/waitlist offer). Every upstream 'compose message' node sets `reply_text` before reaching this node.",
+        "height": 180,
+        "width": 560,
+        "color": 6
+      }
+    },
+    {
+      "id": "ade90098-bed9-4697-8abb-c5e5da7f7a93",
+      "name": "HTTP Request: Send Patient Message (Outbound)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3400,
+        2900
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://example-messaging-gateway.test/send",
+        "sendBody": true,
+        "options": {},
+        "specifyBody": "json",
+        "jsonBody": "={{ { channel: $json.msg_channel, to: $json.msg_contact, message: $json.msg_text } }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "25b9a814-25ab-4a1f-8632-f06ec8a2fb84",
+      "name": "SN OutboundSend",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3400,
+        2660
+      ],
+      "parameters": {
+        "content": "SHARED — Send Patient Message (Outbound)\n\nUsed for anything with NO live request to reply to, or where the recipient differs from whoever triggered this execution: 24h/2h reminders, waitlist offers to a different patient, waitlist-win confirmations, no-show follow-up notices. Placeholder URL — swap for your real SMS/WhatsApp/telephony provider's send API. Upstream nodes set msg_channel / msg_contact / msg_text.",
+        "height": 200,
+        "width": 600,
+        "color": 6
+      }
+    },
+    {
+      "id": "d98b9272-ca56-4a8e-990c-019a0d06d4ee",
+      "name": "Switch: Confirm By Origin",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1400,
+        1700
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.origin_stage }}",
+                    "rightValue": "new_booking",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.origin_stage }}",
+                    "rightValue": "reschedule",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "staff_escalation"
+        }
+      }
+    },
+    {
+      "id": "341b4bf3-a556-4420-ab18-924a5b7282fb",
+      "name": "Prepare New Appointment Record (Booking)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        1480
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const item = $input.first().json;\nconst apptId = 'AP-' + Math.floor(Math.random() * 9000000 + 1000000);\nreturn [{\n  json: {\n    ...item,\n    appointment_id: apptId,\n    calendar_summary: `${item.service_type} - ${item['contact.name'] || 'Patient ' + item.patient_id}`,\n    calendar_description: `Booked via ${item.channel}. Patient ID: ${item.patient_id}.`,\n  },\n}];"
+      }
+    },
+    {
+      "id": "89a53d1b-72d9-4bcd-9ac6-f6673eb5abe8",
+      "name": "Google Calendar: Create Appointment Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1960,
+        1480
+      ],
+      "parameters": {
+        "resource": "event",
+        "operation": "create",
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list"
+        },
+        "start": "={{ $json.slot_start }}",
+        "end": "={{ $json.slot_end }}",
+        "additionalFields": {
+          "summary": "={{ $json.calendar_summary }}",
+          "description": "={{ $json.calendar_description }}"
+        }
+      },
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "GOOGLE_CALENDAR_CRED_ID",
+          "name": "Google Calendar account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "87ff6421-cf6e-4544-a167-e6f8e26c25d1",
+      "name": "Merge Calendar Result Into Appointment (Booking)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        1480
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const calResult = $input.first().json;\nconst ctx = $('Prepare New Appointment Record (Booking)').first().json;\nconst now = $now.toISO();\nreturn [{\n  json: {\n    appointment_id: ctx.appointment_id,\n    patient_id: ctx.patient_id,\n    patient_contact: ctx['contact.phone'],\n    channel: ctx.channel,\n    service_type: ctx.service_type,\n    calendar_event_id: calResult.id || '',\n    start_time: ctx.slot_start,\n    end_time: ctx.slot_end,\n    status: 'confirmed',\n    checkin_status: 'none',\n    reminder_24h_status: 'pending',\n    reminder_2h_status: 'pending',\n    created_at: now,\n    updated_at: now,\n  },\n}];"
+      }
+    },
+    {
+      "id": "8b5e093f-547f-4cd3-9379-fd375d3dac73",
+      "name": "Google Calendar: Update Appointment Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1960,
+        1760
+      ],
+      "parameters": {
+        "resource": "event",
+        "operation": "update",
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list"
+        },
+        "eventId": "={{ $json.calendar_event_id }}",
+        "updateFields": {
+          "start": "={{ $json.slot_start }}",
+          "end": "={{ $json.slot_end }}"
+        }
+      },
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "GOOGLE_CALENDAR_CRED_ID",
+          "name": "Google Calendar account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "6505b63c-8160-4978-b990-de26d499b2cd",
+      "name": "Merge Calendar Result Into Appointment (Reschedule)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        1760
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const calResult = $input.first().json;\nconst ctx = $('Code: Compute Free Slots vs Business Hours').first().json;\nreturn [{\n  json: {\n    appointment_id: ctx.appointment_id,\n    patient_id: ctx.patient_id,\n    patient_contact: ctx['contact.phone'],\n    channel: ctx.channel,\n    service_type: ctx.service_type,\n    calendar_event_id: calResult.id || ctx.calendar_event_id,\n    start_time: ctx.slot_start,\n    end_time: ctx.slot_end,\n    status: 'confirmed',\n    checkin_status: 'none',\n    reminder_24h_status: 'pending',\n    reminder_2h_status: 'pending',\n    updated_at: $now.toISO(),\n  },\n}];"
+      }
+    },
+    {
+      "id": "5c7a1db6-d33a-46b0-b03f-339dc1200825",
+      "name": "Sheets: Upsert Appointment Record",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2520,
+        1620
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Appointments",
+          "mode": "name"
+        },
+        "columnToMatchOn": "appointment_id",
+        "valueToMatchOn": "={{ $json.appointment_id }}",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "b84457c4-4b22-44bb-91e0-36e7d24a3a8c",
+      "name": "Compose Confirmation Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2800,
+        1620
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const row = $input.first().json;\nconst start = new Date(row.start_time);\nconst dateStr = start.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });\nconst timeStr = start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });\nreturn [{\n  json: {\n    ...row,\n    reply_text: `You're confirmed for a ${row.service_type} appointment on ${dateStr} at ${timeStr}. `\n      + `Reply CONFIRM, RESCHEDULE, or CANCEL any time before your visit.`,\n  },\n}];"
+      }
+    },
+    {
+      "id": "7124f65f-0235-4265-8520-b564d72587f0",
+      "name": "Code: Compose Alternative Slots Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        2040
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const item = $input.first().json;\nconst alts = (item.alternative_slots || []).map(s => {\n  const d = new Date(s.start);\n  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })\n    + ' at ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });\n});\nconst list = alts.length ? alts.join('; ') : 'no nearby alternatives were found';\nreturn [{\n  json: {\n    ...item,\n    reply_text: `We don't have an opening in exactly the window you requested for a ${item.service_type} visit. `\n      + `Nearest available options: ${list}. Reply with the option that works, or contact us directly.`,\n  },\n}];"
+      }
+    },
+    {
+      "id": "f4051326-2a8d-4980-b4d1-8164dbb3b558",
+      "name": "SN Confirmation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        1180
+      ],
+      "parameters": {
+        "content": "SHARED BLOCK — Booking/Reschedule Confirmation & Reply\n\nOnly ever reached AFTER Calendar Verification (Stage 3) returned a genuinely open slot — the confirmation text is built strictly from the verified Calendar/Sheets result, never guessed. New bookings create a Calendar event; reschedules update the existing one. Both converge on one Sheets upsert and one confirmation composer.",
+        "height": 220,
+        "width": 760,
+        "color": 5
+      }
+    },
+    {
+      "id": "1a5aceee-4c92-4841-89b3-b3f8a617b3fa",
+      "name": "Schedule Trigger: Reminder Dispatch Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        3300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a8d831fb-44a6-4443-ba30-d29ba3340281",
+      "name": "Sheets: Read All Appointments (For Reminders)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        280,
+        3300
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Appointments",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "357e422c-f84d-4ea7-8181-2e5e9529ae72",
+      "name": "Code: Determine Due Reminders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        3300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const now = new Date();\nconst out = [];\nfor (const item of $input.all()) {\n  const row = item.json;\n  if (row.status !== 'confirmed') continue;\n  const start = new Date(row.start_time);\n  const hoursUntil = (start - now) / 3600000;\n  if (hoursUntil > 0 && hoursUntil <= 24 && row.reminder_24h_status === 'pending') {\n    out.push({ json: { ...row, reminder_stage: '24h' } });\n  } else if (hoursUntil > 0 && hoursUntil <= 2 && row.reminder_2h_status === 'pending') {\n    out.push({ json: { ...row, reminder_stage: '2h' } });\n  }\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "2ebcc22c-4505-40a3-9500-8038dff7de8b",
+      "name": "Code: Compose Reminder Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        3300
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const row = $input.item.json;\nconst start = new Date(row.start_time);\nconst dateStr = start.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });\nconst timeStr = start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });\nconst label = row.reminder_stage === '24h' ? 'tomorrow' : 'in about 2 hours';\nreturn {\n  json: {\n    ...row,\n    msg_channel: row.channel,\n    msg_contact: row.patient_contact,\n    msg_text: `Reminder: you have a ${row.service_type} appointment ${label} (${dateStr} at ${timeStr}). `\n      + `Reply CONFIRM to confirm you're coming, RESCHEDULE to pick a new time, or CANCEL to cancel. `\n      + `Appointment ref: ${row.appointment_id}.`,\n  },\n};"
+      }
+    },
+    {
+      "id": "a07c2e91-d494-4168-a14e-b41d7ea1cc48",
+      "name": "Code: Prepare Reminder Status Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        3520
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const row = $('Code: Compose Reminder Message').item.json;\nconst update = { appointment_id: row.appointment_id };\nif (row.reminder_stage === '24h') update.reminder_24h_status = 'sent';\nelse update.reminder_2h_status = 'sent';\nreturn { json: update };"
+      }
+    },
+    {
+      "id": "21cc66f1-63c7-462e-ac98-6d64795d287f",
+      "name": "Sheets: Mark Reminder Sent",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1120,
+        3520
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Appointments",
+          "mode": "name"
+        },
+        "columnToMatchOn": "appointment_id",
+        "valueToMatchOn": "={{ $json.appointment_id }}",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "589e4c16-c77a-421b-8ca0-1220f0f49caa",
+      "name": "SN Reminders",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        3080
+      ],
+      "parameters": {
+        "content": "STAGE 5 — MULTI-STAGE REMINDERS\n\nPolls every 15 min rather than scheduling one timer per appointment — simpler and self-healing (a missed cycle just fires next poll). 24h and 2h reminders each fire exactly once because the matching status column flips to 'sent' immediately after a successful send. Each reminder includes CONFIRM/RESCHEDULE/CANCEL instructions handled by the Reminder Action Intake webhook (Stage 6).",
+        "height": 180,
+        "width": 680,
+        "color": 4
+      }
+    },
+    {
+      "id": "f6fe7929-8736-47bc-85f2-6af78e53bdba",
+      "name": "Reminder Action Intake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        3700
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "reminder-action",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      }
+    },
+    {
+      "id": "27ec8369-6549-415b-8d4b-77cabffd7715",
+      "name": "Sheets: Get Appointment By ID (Reminder Action)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        280,
+        3700
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Appointments",
+          "mode": "name"
+        },
+        "options": {},
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "appointment_id",
+              "lookupValue": "={{ $json.body.appointment_id }}"
+            }
+          ],
+          "combineFilters": "AND"
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "4b7fa6af-25d2-4e79-bd1a-3701b0adab2a",
+      "name": "Switch: Reminder Action Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        560,
+        3700
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Reminder Action Intake').item.json.body.action }}",
+                    "rightValue": "confirm",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Reminder Action Intake').item.json.body.action }}",
+                    "rightValue": "reschedule",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Reminder Action Intake').item.json.body.action }}",
+                    "rightValue": "cancel",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "staff_escalation"
+        }
+      }
+    },
+    {
+      "id": "4cb17428-1ee4-4336-974c-46bd59de5fe5",
+      "name": "Prepare Check-In Confirmation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        3480
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const row = $input.item.json;\nreturn { json: { appointment_id: row.appointment_id, checkin_status: 'confirmed', service_type: row.service_type, start_time: row.start_time } };"
+      }
+    },
+    {
+      "id": "ee442268-8923-4224-8e73-3d1b6a14457c",
+      "name": "Sheets: Mark Check-In Confirmed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1120,
+        3480
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Appointments",
+          "mode": "name"
+        },
+        "columnToMatchOn": "appointment_id",
+        "valueToMatchOn": "={{ $json.appointment_id }}",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "830d3d51-ea19-4d0f-acd3-008ebc9f379c",
+      "name": "Compose Check-In Acknowledgement",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        3480
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const row = $input.first().json;\nreturn [{ json: { ...row, reply_text: `Thanks for confirming your ${row.service_type} appointment. See you then!` } }];"
+      }
+    },
+    {
+      "id": "fa53554d-c08f-4231-8301-6c4db2ede2f7",
+      "name": "Prep Slot Search: Reschedule (Reminder Action)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        3700
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const appt = $input.first().json;\nconst webhookBody = $('Reminder Action Intake').first().json.body;\nreturn [{\n  json: {\n    origin_stage: 'reschedule',\n    appointment_id: appt.appointment_id,\n    calendar_event_id: appt.calendar_event_id,\n    patient_id: appt.patient_id,\n    channel: webhookBody.channel || appt.channel,\n    'contact.name': '',\n    'contact.phone': webhookBody.contact || appt.patient_contact,\n    'contact.email': '',\n    service_type: appt.service_type,\n    window_start: '',\n    window_end: '',\n  },\n}];"
+      }
+    },
+    {
+      "id": "8d15fec6-ce98-455f-8af2-0dcf6449b85a",
+      "name": "Prep Cancellation: Reminder Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        3920
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const appt = $input.first().json;\nreturn [{ json: { ...appt, origin_stage: 'cancellation', cancel_reason: 'patient_requested', is_synchronous: true } }];"
+      }
+    },
+    {
+      "id": "7f1cc575-2a9b-4916-80fe-0dc614b22748",
+      "name": "SN ReminderAction",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        3240
+      ],
+      "parameters": {
+        "content": "STAGE 6 — REMINDER ACTION INTAKE\n\nThe CONFIRM/RESCHEDULE/CANCEL link in every reminder message posts here. No LLM classification needed — the action is already explicit. 'confirm' is also the check-in signal No-Show Detection (Stage 9) checks for. 'reschedule' re-enters the SAME shared Calendar Verification block used by free-text reschedules (fan-in into 'Get Service Duration') — no duplicated logic.",
+        "height": 200,
+        "width": 680,
+        "color": 4
+      }
+    },
+    {
+      "id": "f284bbad-0047-4ddc-907a-1ebcad9be7e0",
+      "name": "Sheets: Find Appointment To Cancel",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        0,
+        4400
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Appointments",
+          "mode": "name"
+        },
+        "options": {},
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "patient_id",
+              "lookupValue": "={{ $json.patient_id }}"
+            }
+          ],
+          "combineFilters": "AND"
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "87b8d7c6-454f-4b6f-a1e4-0afa3c02637e",
+      "name": "IF: Appointment To Cancel Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        280,
+        4400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.appointment_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "084c33e0-1a6d-46e5-8ef0-5149669a8505",
+      "name": "Prep Cancellation: Free-Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        4400
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const row = $input.first().json;\nreturn [{ json: { ...row, origin_stage: 'cancellation', cancel_reason: 'patient_requested', is_synchronous: true } }];"
+      }
+    },
+    {
+      "id": "03234d7b-2197-4d94-81e7-c697a409212b",
+      "name": "Cancellation: Normalize Envelope",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        840,
+        4400
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "64085033-f828-4672-b5d3-2938b1724481",
+      "name": "Google Calendar: Cancel Appointment Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1120,
+        4180
+      ],
+      "parameters": {
+        "resource": "event",
+        "operation": "delete",
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list"
+        },
+        "eventId": "={{ $json.calendar_event_id }}"
+      },
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "GOOGLE_CALENDAR_CRED_ID",
+          "name": "Google Calendar account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "81df5adb-3e04-48b7-af3f-b512830bb3c4",
+      "name": "Prepare Cancelled Appointment Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        4180
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const ctx = $('Cancellation: Normalize Envelope').first().json;\nreturn [{\n  json: {\n    appointment_id: ctx.appointment_id,\n    status: ctx.origin_stage === 'no_show' ? 'no_show' : 'cancelled',\n    updated_at: $now.toISO(),\n  },\n}];"
+      }
+    },
+    {
+      "id": "8c83aa12-75ca-424c-8018-de4de8476915",
+      "name": "Sheets: Mark Appointment Cancelled Or No-Show",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1680,
+        4180
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Appointments",
+          "mode": "name"
+        },
+        "columnToMatchOn": "appointment_id",
+        "valueToMatchOn": "={{ $json.appointment_id }}",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "9188cfe6-5b95-4049-86dd-ecdb0e4ffccd",
+      "name": "IF: Cancellation Needs Direct Reply?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1960,
+        4180
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $('Cancellation: Normalize Envelope').first().json.is_synchronous }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b7ffa3a9-65cd-4df1-8e50-fe358571c355",
+      "name": "Compose Cancellation Acknowledgement",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        4180
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const ctx = $('Cancellation: Normalize Envelope').first().json;\nreturn [{ json: { ...ctx, reply_text: `Your ${ctx.service_type} appointment has been cancelled. Reach out any time if you'd like to rebook.` } }];"
+      }
+    },
+    {
+      "id": "fdd9df6d-81a7-4abf-a493-f224f48d9e76",
+      "name": "Waitlist: Normalize Fill Request",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        4660
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "52856860-55a2-4817-bcce-0ea655c549d2",
+      "name": "Sheets: Find Waitlist Candidates By Service Type",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1400,
+        4660
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Waitlist",
+          "mode": "name"
+        },
+        "options": {},
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "service_type",
+              "lookupValue": "={{ $json.service_type }}"
+            }
+          ],
+          "combineFilters": "AND"
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "947d30d8-7896-431c-94aa-1f9c75d26e5b",
+      "name": "Code: Select Next Waitlist Candidate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        4660
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const ctx = $('Waitlist: Normalize Fill Request').first().json;\nconst rows = $input.all().map(i => i.json);\nconst candidates = rows\n  .filter(r => r.status === 'waiting'\n    && new Date(r.desired_window_start) <= new Date(ctx.end_time)\n    && new Date(r.desired_window_end) >= new Date(ctx.start_time))\n  .sort((a, b) => (Number(a.priority) || 0) - (Number(b.priority) || 0) || new Date(a.created_at) - new Date(b.created_at));\n\nif (!candidates.length) return [{ json: { ...ctx, waitlist_candidate_found: false } }];\nconst chosen = candidates[0];\nreturn [{\n  json: {\n    ...ctx,\n    waitlist_candidate_found: true,\n    waitlist_id: chosen.waitlist_id,\n    waitlist_patient_id: chosen.patient_id,\n    waitlist_contact: chosen.patient_contact,\n    waitlist_channel: chosen.channel,\n    slot_start: ctx.start_time,\n    slot_end: ctx.end_time,\n  },\n}];"
+      }
+    },
+    {
+      "id": "b7e8625d-b3c3-4b09-a961-2f4c9b7434f3",
+      "name": "IF: Waitlist Candidate Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1960,
+        4660
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.waitlist_candidate_found }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d4882d50-c3d7-4ccd-84ad-68a3acff6b3a",
+      "name": "Prepare Waitlist Hold",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2820,
+        5100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const CONFIG = {\n  serviceDurationsMin: {\"New Patient Consultation\": 45, \"Follow-Up Visit\": 20, \"Routine Checkup\": 30, \"Lab Review / Results Discussion\": 15, \"Vaccination / Injection\": 10},\n  businessHours: {\"start\": \"09:00\", \"end\": \"17:00\", \"days\": [1, 2, 3, 4, 5]},\n  slotGranularityMin: 15,\n  noShowGraceMin: 15,\n  waitlistOfferWindowMin: 30,\n  timezone: \"America/New_York\",\n};\n\nconst item = $input.first().json;\nconst expiresAt = new Date(Date.now() + CONFIG.waitlistOfferWindowMin * 60000).toISOString();\nreturn [{\n  json: {\n    waitlist_id: item.waitlist_id,\n    status: 'offered',\n    offer_expires_at: expiresAt,\n    offer_slot_start: item.slot_start,\n    offer_slot_end: item.slot_end,\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "66a7fafb-b336-40d3-8864-462dc6852980",
+      "name": "Sheets: Create Timed Waitlist Hold",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3100,
+        5100
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Waitlist",
+          "mode": "name"
+        },
+        "columnToMatchOn": "waitlist_id",
+        "valueToMatchOn": "={{ $json.waitlist_id }}",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "563e6c93-44e7-4c2f-b8fb-64a5f0cb2fc7",
+      "name": "Compose Waitlist Offer Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3380,
+        5100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const CONFIG = {\n  serviceDurationsMin: {\"New Patient Consultation\": 45, \"Follow-Up Visit\": 20, \"Routine Checkup\": 30, \"Lab Review / Results Discussion\": 15, \"Vaccination / Injection\": 10},\n  businessHours: {\"start\": \"09:00\", \"end\": \"17:00\", \"days\": [1, 2, 3, 4, 5]},\n  slotGranularityMin: 15,\n  noShowGraceMin: 15,\n  waitlistOfferWindowMin: 30,\n  timezone: \"America/New_York\",\n};\n\nconst ctx = $('Code: Select Next Waitlist Candidate').first().json;\nconst start = new Date(ctx.slot_start);\nconst dateStr = start.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });\nconst timeStr = start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });\nreturn [{\n  json: {\n    ...ctx,\n    msg_channel: ctx.waitlist_channel,\n    msg_contact: ctx.waitlist_contact,\n    msg_text: `Good news \\u2014 a ${ctx.service_type} slot just opened up on ${dateStr} at ${timeStr}. `\n      + `Reply within ${CONFIG.waitlistOfferWindowMin} minutes to claim it (ref: ${ctx.waitlist_id}), or it will go to the next person on the list.`,\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "8076ef16-86c8-4f38-8706-d90c61e2e1d7",
+      "name": "SN CancelWaitlist",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        3940
+      ],
+      "parameters": {
+        "content": "STAGE 7 — CANCELLATION & WAITLIST FILL\n\nFed by free-text cancellation, reminder-action cancel, and (Stage 9) no-show detection — fan-in via 'Cancellation: Normalize Envelope'. Cancelling always tries a waitlist fill in parallel. The waitlist-fill chain (find candidates → select next → verify slot still open → create timed hold → offer) is itself SHARED with Stage 8's expiry/decline re-offer flow via 'Waitlist: Normalize Fill Request' — no duplicated logic, and re-offering naturally skips anyone no longer 'waiting' without needing an explicit exclusion list.",
+        "height": 220,
+        "width": 800,
+        "color": 3
+      }
+    },
+    {
+      "id": "50c36595-2fc8-4d13-a516-b4f1c1660152",
+      "name": "Waitlist Offer Response Intake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        5300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "waitlist-response",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      }
+    },
+    {
+      "id": "6eec38f2-41a0-4063-bace-67cf28fb1964",
+      "name": "Sheets: Get Waitlist Row By ID",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        280,
+        5300
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Waitlist",
+          "mode": "name"
+        },
+        "options": {},
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "waitlist_id",
+              "lookupValue": "={{ $json.body.waitlist_id }}"
+            }
+          ],
+          "combineFilters": "AND"
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "11e96ccd-2b50-40ae-b91a-629c3c78c7ee",
+      "name": "Switch: Waitlist Response Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        560,
+        5300
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Waitlist Offer Response Intake').item.json.body.response }}",
+                    "rightValue": "accept",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Waitlist Offer Response Intake').item.json.body.response }}",
+                    "rightValue": "decline",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "staff_escalation"
+        }
+      }
+    },
+    {
+      "id": "8208510d-0827-4e58-8f95-08395f1193de",
+      "name": "Prepare Waitlist Booking Confirmation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        5080
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const row = $input.first().json;\nconst apptId = 'AP-' + Math.floor(Math.random() * 9000000 + 1000000);\nreturn [{\n  json: {\n    origin_stage: 'new_booking',\n    appointment_id: apptId,\n    patient_id: row.patient_id,\n    channel: row.channel,\n    'contact.name': '',\n    'contact.phone': row.patient_contact,\n    service_type: row.service_type,\n    slot_start: row.offer_slot_start,\n    slot_end: row.offer_slot_end,\n    waitlist_id: row.waitlist_id,\n    calendar_summary: `${row.service_type} - Patient ${row.patient_id} (from waitlist)`,\n    calendar_description: `Booked from waitlist. Patient ID: ${row.patient_id}.`,\n  },\n}];"
+      }
+    },
+    {
+      "id": "294f9af9-2efa-4c3e-900b-0e818a735b10",
+      "name": "Google Calendar: Create Appointment Event (Waitlist)",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1120,
+        5080
+      ],
+      "parameters": {
+        "resource": "event",
+        "operation": "create",
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list"
+        },
+        "start": "={{ $json.slot_start }}",
+        "end": "={{ $json.slot_end }}",
+        "additionalFields": {
+          "summary": "={{ $json.calendar_summary }}",
+          "description": "={{ $json.calendar_description }}"
+        }
+      },
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "GOOGLE_CALENDAR_CRED_ID",
+          "name": "Google Calendar account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "345241d8-9dea-4cf6-a41e-32a187fee13d",
+      "name": "Merge Calendar Result Into Appointment (Waitlist)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        5080
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const calResult = $input.first().json;\nconst ctx = $('Prepare Waitlist Booking Confirmation').first().json;\nconst now = $now.toISO();\nreturn [{\n  json: {\n    appointment_id: ctx.appointment_id,\n    patient_id: ctx.patient_id,\n    patient_contact: ctx['contact.phone'],\n    channel: ctx.channel,\n    service_type: ctx.service_type,\n    calendar_event_id: calResult.id || '',\n    start_time: ctx.slot_start,\n    end_time: ctx.slot_end,\n    status: 'confirmed',\n    checkin_status: 'none',\n    reminder_24h_status: 'pending',\n    reminder_2h_status: 'pending',\n    created_at: now,\n    updated_at: now,\n  },\n}];"
+      }
+    },
+    {
+      "id": "18926040-d63b-4d3b-b3d0-131b44bb738c",
+      "name": "Prepare Waitlist Row Booked",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        5300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const ctx = $('Prepare Waitlist Booking Confirmation').first().json;\nreturn [{ json: { waitlist_id: ctx.waitlist_id, status: 'booked' } }];"
+      }
+    },
+    {
+      "id": "f3e80f46-0da1-45c0-8c29-826bd9f136a2",
+      "name": "Sheets: Mark Waitlist Booked",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1680,
+        5300
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Waitlist",
+          "mode": "name"
+        },
+        "columnToMatchOn": "waitlist_id",
+        "valueToMatchOn": "={{ $json.waitlist_id }}",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "589bad04-cf8e-431b-8a63-252ed8f97b5b",
+      "name": "Prepare Waitlist Decline",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        5560
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const row = $input.first().json;\nreturn [{\n  json: {\n    waitlist_id: row.waitlist_id,\n    status: 'declined',\n    service_type: row.service_type,\n    start_time: row.offer_slot_start,\n    end_time: row.offer_slot_end,\n    patient_contact: row.patient_contact,\n    channel: row.channel,\n  },\n}];"
+      }
+    },
+    {
+      "id": "3b8ea98c-638e-4177-b346-a1487b9ebfb2",
+      "name": "Sheets: Mark Waitlist Declined",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1120,
+        5480
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Waitlist",
+          "mode": "name"
+        },
+        "columnToMatchOn": "waitlist_id",
+        "valueToMatchOn": "={{ $json.waitlist_id }}",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "b8685045-e456-45f6-816f-6c8f21222666",
+      "name": "Compose Waitlist Decline Acknowledgement",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        5640
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: { ...$input.first().json, reply_text: \"No problem \\u2014 we'll offer this slot to the next person on the waitlist.\" } }];"
+      }
+    },
+    {
+      "id": "ef8d5a2c-128b-491f-b8b1-df725d7e1300",
+      "name": "Schedule Trigger: Waitlist Offer Expiry Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        5900
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "5d7fad8d-805b-46a9-988d-14a181c30557",
+      "name": "Sheets: Read All Waitlist Rows (For Expiry Check)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        280,
+        5900
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Waitlist",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "f4d44ce9-af98-4722-ba50-f9a47e65cc42",
+      "name": "Code: Find Expired Waitlist Offers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        5900
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// NOTE: the shared waitlist-fill chain this feeds into (see Stage 7) uses\n// single-item cross-node references ($('Node').first()), so this\n// intentionally processes the SINGLE most-overdue expired offer per poll\n// cycle rather than silently dropping extras if several expire in the same\n// 10-minute window. Any remaining expired rows are caught on the very next\n// cycle (still 'offered' + still past their expiry) -- nothing is lost,\n// worst case a slot sits filled-pending for one extra 10-minute cycle.\nconst now = new Date();\nconst expired = $input.all()\n  .map(i => i.json)\n  .filter(row => row.status === 'offered' && row.offer_expires_at && new Date(row.offer_expires_at) < now)\n  .sort((a, b) => new Date(a.offer_expires_at) - new Date(b.offer_expires_at));\n\nif (!expired.length) return [];\nconst row = expired[0];\nreturn [{\n  json: {\n    waitlist_id: row.waitlist_id,\n    status: 'expired',\n    service_type: row.service_type,\n    start_time: row.offer_slot_start,\n    end_time: row.offer_slot_end,\n  },\n}];"
+      }
+    },
+    {
+      "id": "ec03fb8b-7678-4fad-a1dd-ed33e554c950",
+      "name": "Sheets: Mark Waitlist Offer Expired",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        840,
+        5900
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Waitlist",
+          "mode": "name"
+        },
+        "columnToMatchOn": "waitlist_id",
+        "valueToMatchOn": "={{ $json.waitlist_id }}",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "925a2c36-3be2-4763-9f46-ec9766a45199",
+      "name": "SN WaitlistExpiry",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        4840
+      ],
+      "parameters": {
+        "content": "STAGE 8 — WAITLIST RESPONSE & EXPIRY (explicit race-condition handling)\n\nAccept books the held slot immediately. Decline OR a 10-minute expiry sweep both re-enter the SAME shared waitlist-fill chain from Stage 7 ('Waitlist: Normalize Fill Request') to offer the slot to the next candidate \\u2014 a waitlisted patient who doesn't respond in time never holds the slot open indefinitely.",
+        "height": 200,
+        "width": 760,
+        "color": 3
+      }
+    },
+    {
+      "id": "7bdb4e71-1c86-4ace-840e-02792f07df22",
+      "name": "Schedule Trigger: No-Show Detection Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        6100
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "21b839d9-9c75-4483-880a-a4159cba47b5",
+      "name": "Sheets: Read All Appointments (For No-Show Check)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        280,
+        6100
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Appointments",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "138f0725-1a23-453f-ad34-422b9b453dac",
+      "name": "Code: Find Overdue Unconfirmed Appointments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        6100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const CONFIG = {\n  serviceDurationsMin: {\"New Patient Consultation\": 45, \"Follow-Up Visit\": 20, \"Routine Checkup\": 30, \"Lab Review / Results Discussion\": 15, \"Vaccination / Injection\": 10},\n  businessHours: {\"start\": \"09:00\", \"end\": \"17:00\", \"days\": [1, 2, 3, 4, 5]},\n  slotGranularityMin: 15,\n  noShowGraceMin: 15,\n  waitlistOfferWindowMin: 30,\n  timezone: \"America/New_York\",\n};\n\n// Same single-item-per-cycle rationale as the waitlist expiry check (Stage 8)\n// -- the shared cancellation/waitlist-fill chain this feeds uses single-item\n// cross-node references. Any other overdue appointment is still overdue and\n// unconfirmed on the next 15-minute cycle, so nothing is silently lost.\nconst now = new Date();\nconst overdue = $input.all()\n  .map(i => i.json)\n  .filter(row => row.status === 'confirmed'\n    && row.checkin_status !== 'confirmed'\n    && (now - new Date(row.start_time)) > CONFIG.noShowGraceMin * 60000)\n  .sort((a, b) => new Date(a.start_time) - new Date(b.start_time));\n\nif (!overdue.length) return [];\nreturn [{ json: overdue[0] }];\n"
+      }
+    },
+    {
+      "id": "1634aec5-6990-42ee-8e8e-3aee688c530d",
+      "name": "Prep Cancellation: No-Show",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        6100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const row = $input.first().json;\nreturn [{ json: { ...row, origin_stage: 'no_show', cancel_reason: 'no_show', is_synchronous: false } }];"
+      }
+    },
+    {
+      "id": "ca390286-4d33-4db3-a9d6-72ef6dc46d5e",
+      "name": "Sheets: Append No-Show Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1120,
+        6320
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "NoShowLog",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "a5a65a8b-1f52-45e4-abf0-790510ca3b26",
+      "name": "Prepare No-Show Log Entry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        6320
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const row = $('Code: Find Overdue Unconfirmed Appointments').first().json;\nreturn [{\n  json: {\n    log_id: 'NS-' + Math.floor(Math.random() * 9000000 + 1000000),\n    appointment_id: row.appointment_id,\n    patient_id: row.patient_id,\n    service_type: row.service_type,\n    scheduled_time: row.start_time,\n    detected_at: $now.toISO(),\n  },\n}];"
+      }
+    },
+    {
+      "id": "ac070227-9825-41e8-ba55-ffed9f563748",
+      "name": "Compose No-Show Follow-Up Notice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        6540
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const row = $('Code: Find Overdue Unconfirmed Appointments').first().json;\nreturn [{\n  json: {\n    msg_channel: row.channel,\n    msg_contact: row.patient_contact,\n    msg_text: `We had you scheduled for a ${row.service_type} appointment and didn't see a check-in. `\n      + `No worries \\u2014 reply any time to rebook.`,\n  },\n}];"
+      }
+    },
+    {
+      "id": "7231747e-f112-4923-bb80-a6d547648b3e",
+      "name": "SN NoShow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        5880
+      ],
+      "parameters": {
+        "content": "STAGE 9 — NO-SHOW DETECTION\n\n'Check-in' is proxied by a CONFIRM reply to the 2h reminder (Stage 6) -- there's no physical kiosk in scope, this is scheduling logistics only. Past start-time + grace period with no confirmation -> logged as fact (no judgment about cause) and fed into the SAME Cancellation & Waitlist Fill chain as any other cancellation, immediately trying to fill the freed slot.",
+        "height": 180,
+        "width": 700,
+        "color": 4
+      }
+    },
+    {
+      "id": "9f56975f-2f17-46eb-b21b-c94abcc4c8f4",
+      "name": "Prep Escalation: Needs Staff",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2520,
+        60
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const c = $input.first().json;\nlet reason = 'Ambiguous or low-confidence classification';\nif (c.contains_clinical_content) reason = 'Message contains clinical/medical content -- must be handled by staff, never answered by this system';\nelse if (c.urgency === 'urgent') reason = 'Flagged urgent/emergency';\nelse if (c.explicit_human_request) reason = 'Patient explicitly asked for a person';\nreturn [{\n  json: {\n    reason, channel: c.channel, patient_contact: c['contact.phone'], raw_text: c.raw_text || '',\n    system_understood_json: JSON.stringify({ intent: c.intent, service_type: c.service_type, urgency: c.urgency, reasoning: c.reasoning }),\n  },\n}];"
+      }
+    },
+    {
+      "id": "c5c3cfbf-c412-4429-a319-b9dfaaa64e31",
+      "name": "Prep Escalation: Unclassified Intent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2800,
+        460
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const c = $input.first().json;\nreturn [{\n  json: {\n    reason: 'Could not confidently classify the request intent', channel: c.channel, patient_contact: c['contact.phone'],\n    raw_text: c.raw_text || '', system_understood_json: JSON.stringify({ intent: c.intent, reasoning: c.reasoning }),\n  },\n}];"
+      }
+    },
+    {
+      "id": "7f2ba539-e098-4e5d-93f7-9a00a595638b",
+      "name": "Prep Escalation: Reschedule No Appointment Found",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        640
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const c = $('Attach Envelope Fields To Classification').first().json;\nreturn [{\n  json: {\n    reason: 'Reschedule requested, but no upcoming appointment found on file for this patient',\n    channel: c.channel, patient_contact: c['contact.phone'], raw_text: c.raw_text || '',\n    system_understood_json: JSON.stringify({ intent: c.intent, patient_id: c.patient_id }),\n  },\n}];"
+      }
+    },
+    {
+      "id": "09806372-286c-49f3-9c68-e5f3d8ad0a47",
+      "name": "Prep Escalation: No Slot Available",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        1160
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const c = $input.first().json;\nreturn [{\n  json: {\n    reason: `No available ${c.service_type || 'appointment'} slot found in the search window (origin: ${c.origin_stage})`,\n    channel: c.channel, patient_contact: c['contact.phone'], raw_text: c.raw_text || '',\n    system_understood_json: JSON.stringify({ origin_stage: c.origin_stage, service_type: c.service_type, window_start: c.window_start, window_end: c.window_end }),\n  },\n}];"
+      }
+    },
+    {
+      "id": "0b491043-fd95-42b8-9d18-7fa2713a1f0c",
+      "name": "Prep Escalation: Unexpected Origin Stage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        2040
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const c = $input.first().json;\nreturn [{\n  json: {\n    reason: 'A verified slot could not be routed to booking or reschedule confirmation (unexpected internal state)',\n    channel: c.channel, patient_contact: c['contact.phone'], raw_text: c.raw_text || '',\n    system_understood_json: JSON.stringify({ origin_stage: c.origin_stage, appointment_id: c.appointment_id }),\n  },\n}];"
+      }
+    },
+    {
+      "id": "cc653020-3350-4f4c-b549-50e2ff35f83c",
+      "name": "Prep Escalation: Unrecognized Reminder Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        4160
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const appt = $input.first().json;\nconst body = $('Reminder Action Intake').first().json.body;\nreturn [{\n  json: {\n    reason: `Unrecognized reminder action \"${body.action}\" received`,\n    channel: body.channel || appt.channel, patient_contact: body.contact || appt.patient_contact,\n    raw_text: JSON.stringify(body), system_understood_json: JSON.stringify({ appointment_id: appt.appointment_id }),\n  },\n}];"
+      }
+    },
+    {
+      "id": "8b856846-7ada-4a4c-98f2-a0406ddd7afd",
+      "name": "Prep Escalation: Cancellation No Appointment Found",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        4620
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const c = $('Attach Envelope Fields To Classification').first().json;\nreturn [{\n  json: {\n    reason: 'Cancellation requested, but no upcoming appointment found on file for this patient',\n    channel: c.channel, patient_contact: c['contact.phone'], raw_text: c.raw_text || '',\n    system_understood_json: JSON.stringify({ intent: c.intent, patient_id: c.patient_id }),\n  },\n}];"
+      }
+    },
+    {
+      "id": "fa1b45f2-6cf1-45c2-8a14-efdb9e0332a2",
+      "name": "Prep Escalation: Unrecognized Waitlist Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        5760
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const row = $input.first().json;\nconst body = $('Waitlist Offer Response Intake').first().json.body;\nreturn [{\n  json: {\n    reason: `Unrecognized waitlist response \"${body.response}\" received`,\n    channel: row.channel, patient_contact: row.patient_contact,\n    raw_text: JSON.stringify(body), system_understood_json: JSON.stringify({ waitlist_id: row.waitlist_id }),\n  },\n}];"
+      }
+    },
+    {
+      "id": "a60f49fb-ce71-4860-9e01-c51f0ae506f7",
+      "name": "Staff Escalation: Normalize Context",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        0,
+        6600
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "ec203894-5729-4b76-aff4-ff01c241d2bf",
+      "name": "Compose Staff Escalation Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        6600
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const e = $input.first().json;\nreturn [{\n  json: {\n    escalation_id: 'ESC-' + Math.floor(Math.random() * 9000000 + 1000000),\n    timestamp: $now.toISO(),\n    channel: e.channel,\n    patient_contact: e.patient_contact,\n    raw_text: e.raw_text,\n    system_understood_json: e.system_understood_json,\n    reason: e.reason,\n    status: 'open',\n    email_subject: `[Scheduling] Staff review needed: ${e.reason}`,\n    email_body: `Reason: ${e.reason}\\nChannel: ${e.channel}\\nContact: ${e.patient_contact}\\n\\n`\n      + `Original message/context: ${e.raw_text || '(none)'}\\n\\nSystem understood: ${e.system_understood_json}`,\n  },\n}];"
+      }
+    },
+    {
+      "id": "31d5a5aa-5688-4dff-8ecf-1fbc7e65361d",
+      "name": "Sheets: Append Escalation Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        560,
+        6420
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Escalations",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "a5ce9764-bacb-42e4-926b-ae75828cc4cd",
+      "name": "Email: Staff Escalation Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        560,
+        6600
+      ],
+      "parameters": {
+        "fromEmail": "scheduling-alerts@example-clinic.test",
+        "toEmail": "scheduling-staff@example-clinic.test",
+        "subject": "={{ $json.email_subject }}",
+        "text": "={{ $json.email_body }}",
+        "options": {}
+      },
+      "credentials": {
+        "smtp": {
+          "id": "SMTP_CRED_ID",
+          "name": "Staff SMTP account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "16f08e12-b2fa-4133-a619-7bda311ae0a0",
+      "name": "Compose Escalation Acknowledgement To Patient",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        6780
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: { ...$input.first().json, reply_text: \"Thanks for reaching out. A staff member will follow up with you shortly.\" } }];"
+      }
+    },
+    {
+      "id": "7764b79c-5897-4a60-9bdc-d80ca41adc19",
+      "name": "SN Escalation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        6200
+      ],
+      "parameters": {
+        "content": "STAGE 10 — STAFF ESCALATION (shared block)\n\nFed by every point in this workflow where the system should not guess: clinical content, urgent/emergency flags, explicit human requests, unclassifiable intent, no upcoming appointment found for a reschedule/cancellation, no slot available at all, and any unrecognized action. Every escalation logs full context (what was requested, what the system understood, why it's escalating), emails staff, and acknowledges the patient so they're never left without a next step.",
+        "height": 200,
+        "width": 760,
+        "color": 3
+      }
+    },
+    {
+      "id": "bd210942-19d7-4251-900f-d56faeec9839",
+      "name": "Compose Error Alert Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        7000
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const err = $input.first().json;\nconst failedNode = $prevNode?.name || 'unknown node';\nconst message = err?.error?.message || err?.message || JSON.stringify(err).slice(0, 500);\nreturn [{\n  json: {\n    error_id: 'ERR-' + Math.floor(Math.random() * 9000000 + 1000000),\n    timestamp: $now.toISO(),\n    node_name: failedNode,\n    stage: $workflow.name,\n    error_message: message,\n    item_snapshot: JSON.stringify(err).slice(0, 1000),\n    email_subject: `[Scheduling] Unhandled error in \"${failedNode}\"`,\n    email_body: `Node: ${failedNode}\\nWorkflow: ${$workflow.name}\\nError: ${message}`,\n  },\n}];"
+      }
+    },
+    {
+      "id": "5ce1fd8c-fd4d-40db-b25a-331ede4bbda6",
+      "name": "Sheets: Append Error Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        280,
+        6860
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ErrorLog",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "db935492-bdf3-4ee5-bd88-f70da13db951",
+      "name": "Email: Unhandled Error Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        280,
+        7140
+      ],
+      "parameters": {
+        "fromEmail": "scheduling-alerts@example-clinic.test",
+        "toEmail": "scheduling-staff@example-clinic.test",
+        "subject": "={{ $json.email_subject }}",
+        "text": "={{ $json.email_body }}",
+        "options": {}
+      },
+      "credentials": {
+        "smtp": {
+          "id": "SMTP_CRED_ID",
+          "name": "Staff SMTP account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "20979610-cf1a-4d8f-b0cf-26a4b554f16f",
+      "name": "SN Reliability",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        6680
+      ],
+      "parameters": {
+        "content": "STAGE 11 — RELIABILITY LAYER\n\nEvery external-call node (Calendar, Sheets, Anthropic, outbound HTTP) across the ENTIRE canvas uses the same retryOnFail=true / maxTries=4 / waitBetweenTries=2000ms policy and routes its error output (after retries are exhausted) into this ONE shared alert chain -- this is the reusable 'reliability sub-block' called for in the spec, realized as consistent per-node config + one shared fan-in group, since a callable sub-workflow isn't used on this single canvas. Auto-wired programmatically by this generator so no external call can be added later without an error path.",
+        "height": 220,
+        "width": 760,
+        "color": 3
+      }
+    },
+    {
+      "id": "543574f0-2aa0-4ad7-9926-17ee801d4c1c",
+      "name": "Schedule Trigger: Hourly Metrics Snapshot",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        7500
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 60
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "1605daef-c3f5-4018-ba6d-bf5b91462cb7",
+      "name": "Sheets: Read Appointments For Metrics",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        280,
+        7500
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Appointments",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "163a9cd3-4e13-4a7c-b5ab-67bc3678888a",
+      "name": "Sheets: Read Waitlist For Metrics",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        560,
+        7500
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Waitlist",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "75b6f4fe-5b08-4be6-a8f4-88d87386a2c6",
+      "name": "Sheets: Read No-Show Log For Metrics",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        840,
+        7500
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "NoShowLog",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "e6caa299-3c3e-4314-bd4e-4aa4d00c46f6",
+      "name": "Sheets: Read Escalations For Metrics",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1120,
+        7500
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Escalations",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "e558d967-54db-45c9-b1bf-5047b3ab095d",
+      "name": "Code: Compute Reporting Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        7500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Reads each earlier Sheets node's output directly by name rather than via\n// a Merge node -- all four ran earlier in this same linear execution chain,\n// so their data is available regardless of this node's own single input.\nconst appts = $('Sheets: Read Appointments For Metrics').all().map(i => i.json);\nconst waitlist = $('Sheets: Read Waitlist For Metrics').all().map(i => i.json);\nconst noShows = $('Sheets: Read No-Show Log For Metrics').all().map(i => i.json);\nconst escalations = $('Sheets: Read Escalations For Metrics').all().map(i => i.json);\n\nconst bookingsMade = appts.filter(a => a.status && a.status !== '').length;\nconst remindersSent = appts.filter(a => a.reminder_24h_status === 'sent').length\n  + appts.filter(a => a.reminder_2h_status === 'sent').length;\nconst confirmedViaReminder = appts.filter(a => a.checkin_status === 'confirmed').length;\nconst concludedAppts = appts.filter(a => ['confirmed', 'completed', 'no_show', 'cancelled'].includes(a.status)).length;\nconst confirmationRate = concludedAppts ? (confirmedViaReminder / concludedAppts) : 0;\nconst noShowRate = concludedAppts ? (noShows.length / concludedAppts) : 0;\nconst waitlistFillCount = waitlist.filter(w => w.status === 'booked').length;\n\nreturn [{\n  json: {\n    snapshot_at: $now.toISO(),\n    bookings_made_total: bookingsMade,\n    reminders_sent_total: remindersSent,\n    confirmation_rate: Math.round(confirmationRate * 1000) / 1000,\n    no_show_rate: Math.round(noShowRate * 1000) / 1000,\n    waitlist_fill_count: waitlistFillCount,\n    escalation_count: escalations.filter(e => e.escalation_id).length,\n  },\n}];"
+      }
+    },
+    {
+      "id": "3eec2aab-f534-4786-bf8e-94a3413c5ba1",
+      "name": "Sheets: Append Dashboard Snapshot",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1680,
+        7500
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Dashboard",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "4dadb0aa-3a93-460a-8b58-ad2edc8762cd",
+      "name": "SN Reporting",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        7280
+      ],
+      "parameters": {
+        "content": "STAGE 12 — REPORTING / VISIBILITY\n\nHourly snapshot of counts only (no patient-identifying data) appended to the Dashboard sheet tab \\u2014 a practice manager can open that tab directly with no other access needed. Reads all four source tabs in one linear chain and references each by node name in the final Code node, avoiding a Merge node entirely.",
+        "height": 180,
+        "width": 680,
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Web Booking Form Intake": {
+      "main": [
+        [
+          {
+            "node": "Normalize: Web -> Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Intake (Simulated Stand-In)": {
+      "main": [
+        [
+          {
+            "node": "Normalize: WhatsApp -> Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Phone Transcript Intake": {
+      "main": [
+        [
+          {
+            "node": "Normalize: Phone Transcript -> Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize: Web -> Envelope": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Find Patient By Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize: WhatsApp -> Envelope": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Find Patient By Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize: Phone Transcript -> Envelope": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Find Patient By Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Find Patient By Phone": {
+      "main": [
+        [
+          {
+            "node": "IF: Patient Found?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Patient Found?": {
+      "main": [
+        [
+          {
+            "node": "Prep: Classification Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare New Patient Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare New Patient Record": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Create New Patient Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model: Claude": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Classify & Extract Request (Claude)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser: Classification Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Classify & Extract Request (Claude)",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep: Classification Input": {
+      "main": [
+        [
+          {
+            "node": "Classify & Extract Request (Claude)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Create New Patient Record": {
+      "main": [
+        [
+          {
+            "node": "Prep: Classification Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify & Extract Request (Claude)": {
+      "main": [
+        [
+          {
+            "node": "Attach Envelope Fields To Classification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Envelope Fields To Classification": {
+      "main": [
+        [
+          {
+            "node": "IF: Needs Staff / Clinical / Urgent?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Needs Staff / Clinical / Urgent?": {
+      "main": [
+        [
+          {
+            "node": "Prep Escalation: Needs Staff",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Switch: Route By Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: Route By Intent": {
+      "main": [
+        [
+          {
+            "node": "Prep Slot Search: New Booking",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sheets: Find Patient's Upcoming Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sheets: Find Appointment To Cancel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prep Escalation: Unclassified Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Find Patient's Upcoming Appointment": {
+      "main": [
+        [
+          {
+            "node": "IF: Upcoming Appointment Found?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Upcoming Appointment Found?": {
+      "main": [
+        [
+          {
+            "node": "Prep Slot Search: Reschedule (Free-Text)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prep Escalation: Reschedule No Appointment Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Slot Search: New Booking": {
+      "main": [
+        [
+          {
+            "node": "Get Service Duration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Slot Search: Reschedule (Free-Text)": {
+      "main": [
+        [
+          {
+            "node": "Get Service Duration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Service Duration": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar: List Events In Window",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar: List Events In Window": {
+      "main": [
+        [
+          {
+            "node": "Code: Compute Free Slots vs Business Hours",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Compute Free Slots vs Business Hours": {
+      "main": [
+        [
+          {
+            "node": "Switch: Slot Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Build Slot Recheck Window": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar: Re-Check Freed Slot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar: Re-Check Freed Slot": {
+      "main": [
+        [
+          {
+            "node": "Code: Determine If Still Open",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Determine If Still Open": {
+      "main": [
+        [
+          {
+            "node": "IF: Slot Still Open?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: Slot Result": {
+      "main": [
+        [
+          {
+            "node": "Switch: Confirm By Origin",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Compose Alternative Slots Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prep Escalation: No Slot Available",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: Confirm By Origin": {
+      "main": [
+        [
+          {
+            "node": "Prepare New Appointment Record (Booking)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Calendar: Update Appointment Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prep Escalation: Unexpected Origin Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare New Appointment Record (Booking)": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar: Create Appointment Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar: Create Appointment Event": {
+      "main": [
+        [
+          {
+            "node": "Merge Calendar Result Into Appointment (Booking)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar: Update Appointment Event": {
+      "main": [
+        [
+          {
+            "node": "Merge Calendar Result Into Appointment (Reschedule)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Calendar Result Into Appointment (Booking)": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Upsert Appointment Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Calendar Result Into Appointment (Reschedule)": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Upsert Appointment Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Upsert Appointment Record": {
+      "main": [
+        [
+          {
+            "node": "Compose Confirmation Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Confirmation Message": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook: Patient Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Compose Alternative Slots Message": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook: Patient Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger: Reminder Dispatch Check": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Read All Appointments (For Reminders)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Read All Appointments (For Reminders)": {
+      "main": [
+        [
+          {
+            "node": "Code: Determine Due Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Determine Due Reminders": {
+      "main": [
+        [
+          {
+            "node": "Code: Compose Reminder Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Compose Reminder Message": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request: Send Patient Message (Outbound)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request: Send Patient Message (Outbound)": {
+      "main": [
+        [
+          {
+            "node": "Code: Prepare Reminder Status Update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Prepare Reminder Status Update": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Mark Reminder Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reminder Action Intake": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Get Appointment By ID (Reminder Action)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Get Appointment By ID (Reminder Action)": {
+      "main": [
+        [
+          {
+            "node": "Switch: Reminder Action Type",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: Reminder Action Type": {
+      "main": [
+        [
+          {
+            "node": "Prepare Check-In Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prep Slot Search: Reschedule (Reminder Action)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prep Cancellation: Reminder Action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prep Escalation: Unrecognized Reminder Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Check-In Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Mark Check-In Confirmed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Mark Check-In Confirmed": {
+      "main": [
+        [
+          {
+            "node": "Compose Check-In Acknowledgement",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Check-In Acknowledgement": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook: Patient Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Slot Search: Reschedule (Reminder Action)": {
+      "main": [
+        [
+          {
+            "node": "Get Service Duration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Find Appointment To Cancel": {
+      "main": [
+        [
+          {
+            "node": "IF: Appointment To Cancel Found?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Appointment To Cancel Found?": {
+      "main": [
+        [
+          {
+            "node": "Prep Cancellation: Free-Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prep Escalation: Cancellation No Appointment Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Cancellation: Free-Text": {
+      "main": [
+        [
+          {
+            "node": "Cancellation: Normalize Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Cancellation: Reminder Action": {
+      "main": [
+        [
+          {
+            "node": "Cancellation: Normalize Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancellation: Normalize Envelope": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar: Cancel Appointment Event",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Waitlist: Normalize Fill Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar: Cancel Appointment Event": {
+      "main": [
+        [
+          {
+            "node": "Prepare Cancelled Appointment Update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Cancelled Appointment Update": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Mark Appointment Cancelled Or No-Show",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Mark Appointment Cancelled Or No-Show": {
+      "main": [
+        [
+          {
+            "node": "IF: Cancellation Needs Direct Reply?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Cancellation Needs Direct Reply?": {
+      "main": [
+        [
+          {
+            "node": "Compose Cancellation Acknowledgement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Cancellation Acknowledgement": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook: Patient Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Waitlist: Normalize Fill Request": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Find Waitlist Candidates By Service Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Find Waitlist Candidates By Service Type": {
+      "main": [
+        [
+          {
+            "node": "Code: Select Next Waitlist Candidate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Select Next Waitlist Candidate": {
+      "main": [
+        [
+          {
+            "node": "IF: Waitlist Candidate Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Waitlist Candidate Found?": {
+      "main": [
+        [
+          {
+            "node": "Code: Build Slot Recheck Window",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Slot Still Open?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Waitlist Hold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Waitlist Hold": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Create Timed Waitlist Hold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Create Timed Waitlist Hold": {
+      "main": [
+        [
+          {
+            "node": "Compose Waitlist Offer Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Waitlist Offer Message": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request: Send Patient Message (Outbound)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Waitlist Offer Response Intake": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Get Waitlist Row By ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Get Waitlist Row By ID": {
+      "main": [
+        [
+          {
+            "node": "Switch: Waitlist Response Type",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: Waitlist Response Type": {
+      "main": [
+        [
+          {
+            "node": "Prepare Waitlist Booking Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Waitlist Decline",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prep Escalation: Unrecognized Waitlist Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Waitlist Booking Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar: Create Appointment Event (Waitlist)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar: Create Appointment Event (Waitlist)": {
+      "main": [
+        [
+          {
+            "node": "Merge Calendar Result Into Appointment (Waitlist)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Calendar Result Into Appointment (Waitlist)": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Upsert Appointment Record",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Prepare Waitlist Row Booked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Waitlist Row Booked": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Mark Waitlist Booked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Waitlist Decline": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Mark Waitlist Declined",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Compose Waitlist Decline Acknowledgement",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Waitlist: Normalize Fill Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Waitlist Decline Acknowledgement": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook: Patient Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger: Waitlist Offer Expiry Check": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Read All Waitlist Rows (For Expiry Check)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Read All Waitlist Rows (For Expiry Check)": {
+      "main": [
+        [
+          {
+            "node": "Code: Find Expired Waitlist Offers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Find Expired Waitlist Offers": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Mark Waitlist Offer Expired",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Waitlist: Normalize Fill Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger: No-Show Detection Check": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Read All Appointments (For No-Show Check)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Read All Appointments (For No-Show Check)": {
+      "main": [
+        [
+          {
+            "node": "Code: Find Overdue Unconfirmed Appointments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Find Overdue Unconfirmed Appointments": {
+      "main": [
+        [
+          {
+            "node": "Prep Cancellation: No-Show",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Prepare No-Show Log Entry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Compose No-Show Follow-Up Notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Cancellation: No-Show": {
+      "main": [
+        [
+          {
+            "node": "Cancellation: Normalize Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare No-Show Log Entry": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Append No-Show Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose No-Show Follow-Up Notice": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request: Send Patient Message (Outbound)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Escalation: Needs Staff": {
+      "main": [
+        [
+          {
+            "node": "Staff Escalation: Normalize Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Escalation: Unclassified Intent": {
+      "main": [
+        [
+          {
+            "node": "Staff Escalation: Normalize Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Escalation: Reschedule No Appointment Found": {
+      "main": [
+        [
+          {
+            "node": "Staff Escalation: Normalize Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Escalation: No Slot Available": {
+      "main": [
+        [
+          {
+            "node": "Staff Escalation: Normalize Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Escalation: Unexpected Origin Stage": {
+      "main": [
+        [
+          {
+            "node": "Staff Escalation: Normalize Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Escalation: Unrecognized Reminder Action": {
+      "main": [
+        [
+          {
+            "node": "Staff Escalation: Normalize Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Escalation: Cancellation No Appointment Found": {
+      "main": [
+        [
+          {
+            "node": "Staff Escalation: Normalize Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Escalation: Unrecognized Waitlist Response": {
+      "main": [
+        [
+          {
+            "node": "Staff Escalation: Normalize Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Staff Escalation: Normalize Context": {
+      "main": [
+        [
+          {
+            "node": "Compose Staff Escalation Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Staff Escalation Email": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Append Escalation Log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email: Staff Escalation Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Compose Escalation Acknowledgement To Patient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Escalation Acknowledgement To Patient": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook: Patient Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Error Alert Context": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Append Error Log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email: Unhandled Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Mark Reminder Sent": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Mark Waitlist Booked": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Mark Waitlist Declined": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Mark Waitlist Offer Expired": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Append No-Show Log": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Append Escalation Log": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email: Staff Escalation Alert": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Compose Error Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger: Hourly Metrics Snapshot": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Read Appointments For Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Read Appointments For Metrics": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Read Waitlist For Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Read Waitlist For Metrics": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Read No-Show Log For Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Read No-Show Log For Metrics": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Read Escalations For Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Read Escalations For Metrics": {
+      "main": [
+        [
+          {
+            "node": "Code: Compute Reporting Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Compute Reporting Metrics": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Append Dashboard Snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  }
+}

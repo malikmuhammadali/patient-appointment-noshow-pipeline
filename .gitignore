@@ -1,0 +1,19 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Local Claude Code session settings (not shared team config)
+.claude/
+
+# Scratch/investigation files from working sessions
+_*.json
+_*.txt
+
+# Python
+__pycache__/
+*.pyc
+
+# OS cruft
+.DS_Store
+Thumbs.db
